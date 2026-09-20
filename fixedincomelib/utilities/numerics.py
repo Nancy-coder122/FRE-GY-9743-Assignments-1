@@ -108,20 +108,60 @@ class Interpolator1DPCP(Interpolator1D):
         assert self.extrap_method_ == ExtrapMethod.FLAT
 
     def interpolate(self, x: float) -> float:
-        #TODO
-        pass
+        # ``side='left'`` implements the left-continuous convention:
+        # y[0] on the left wing, and y[i] on (x[i-1], x[i]].
+        index = np.searchsorted(self.axis1_, x, side='left')
+        index = min(index, self.length_ - 1)
+        return self.values_[index]
 
     def integrate(self, start_x: float, end_x: float) -> float:
-        #TODO
-        pass
+        return float(np.dot(
+            self._integration_weights(start_x, end_x), self.values_
+        ))
 
     def gradient_wrt_ordinate(self, x: float) -> np.ndarray:
-        #TODO
-        pass
+        gradient = np.zeros(self.length_, dtype=float)
+        index = np.searchsorted(self.axis1_, x, side='left')
+        index = min(index, self.length_ - 1)
+        gradient[index] = 1.0
+        return gradient
 
     def gradient_of_integrated_value_wrt_ordinate(self, start_x: float, end_x: float) -> np.ndarray:
-        #TODO
-        pass
+        return self._integration_weights(start_x, end_x)
+
+    def _integration_weights(self, start_x: float, end_x: float) -> np.ndarray:
+        """Return the signed length multiplying each ordinate in the integral."""
+        if start_x == end_x:
+            return np.zeros(self.length_, dtype=float)
+
+        sign = 1.0
+        lower, upper = start_x, end_x
+        if start_x > end_x:
+            lower, upper = end_x, start_x
+            sign = -1.0
+
+        # Split at every distinct knot strictly inside the integration region.
+        # The value at a single endpoint has zero measure, so a midpoint safely
+        # identifies the ordinate used on each positive-length segment.
+        interior_knots = self.axis1_[
+            (self.axis1_ > lower) & (self.axis1_ < upper)
+        ]
+        breakpoints = np.concatenate((
+            np.array([lower], dtype=float),
+            np.unique(interior_knots),
+            np.array([upper], dtype=float),
+        ))
+
+        weights = np.zeros(self.length_, dtype=float)
+        for left, right in zip(breakpoints[:-1], breakpoints[1:]):
+            if right <= left:
+                continue
+            midpoint = left + 0.5 * (right - left)
+            index = np.searchsorted(self.axis1_, midpoint, side='left')
+            index = min(index, self.length_ - 1)
+            weights[index] += right - left
+
+        return sign * weights
 
 
 class InterpolatorFactory:
